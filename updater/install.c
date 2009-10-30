@@ -349,6 +349,33 @@ char* PackageExtractFileFn(const char* name, State* state,
 }
 
 
+// package_extract_dir(package_path, destination_path)
+char* RetouchLibrariesFn(const char* name, State* state,
+			 int argc, Expr* argv[]) {
+    char **retouch_entries  = ReadVarArgs(state, argc, argv);
+    if (retouch_entries == NULL) {
+      return NULL;
+    }
+
+    int i = 0;
+    bool success = 1;
+    while (i < (argc-1)) {
+      success = success || retouch_one_library(retouch_entries[i], 
+					       retouch_entries[i+1]);
+      free(retouch_entries[i]);
+      free(retouch_entries[i+1]);
+      i += 2;
+    }
+    if (i < argc) {
+      free(retouch_entries[i]);
+      success = 0;
+    }
+    free(retouch_entries);
+
+    return strdup(success ? "t" : "");
+}
+
+
 // symlink target src1 src2 ...
 //    unlinks any previously existing src1, src2, etc before creating symlinks.
 char* SymlinkFn(const char* name, State* state, int argc, Expr* argv[]) {
@@ -836,6 +863,7 @@ void RegisterInstallFunctions() {
     RegisterFunction("delete_recursive", DeleteFn);
     RegisterFunction("package_extract_dir", PackageExtractDirFn);
     RegisterFunction("package_extract_file", PackageExtractFileFn);
+    RegisterFunction("retouch_libraries", RetouchLibrariesFn);
     RegisterFunction("symlink", SymlinkFn);
     RegisterFunction("set_perm", SetPermFn);
     RegisterFunction("set_perm_recursive", SetPermFn);
