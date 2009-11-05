@@ -25,6 +25,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "cutils/misc.h"
 #include "cutils/properties.h"
@@ -349,26 +350,178 @@ char* PackageExtractFileFn(const char* name, State* state,
 }
 
 
-// package_extract_dir(package_path, destination_path)
+//
+// Functions related to retouching shared libraries (for ASLR).
+//
+
+typedef struct {
+	int32_t mmap_addr;
+	char tag[4]; /* 'P', 'R', 'E', ' ' */
+} prelink_info_t __attribute__((packed));
+
+bool check_prelinked(int fd) {
+  if (sizeof(prelink_info_t) != 8) return false;
+  off_t end = lseek(fd, 0, SEEK_END);  
+  int nr = sizeof(prelink_info_t);
+  off_t sz = lseek(fd, -nr, SEEK_CUR);
+  if ((long)(end - sz) != (long)nr || sz == (off_t)-1) return false;
+  
+  prelink_info_t info;
+  int num_read = read(fd, &info, nr);
+  if (num_read < 0 || 
+      num_read != sizeof(info) ||
+      strncmp(info.tag, "PRE ", 4)) return false;
+  return true;
+}
+
+bool set_prelink_info(int fd, int value) {
+  int nr = sizeof(prelink_info_t);
+  if (nr != 8) return false;
+
+  off_t end = lseek(fd, 0, SEEK_END);  
+  off_t sz = lseek(fd, -nr, SEEK_CUR);
+  if ((long)(end - sz) != (long)nr || sz == (off_t)-1) return false;
+  
+  prelink_info_t info;
+  int num_read = read(fd, &info, nr);
+  if (num_read < 0 || num_read != sizeof(info)) return false;
+
+  info.mmap_addr = value;
+  strncpy(info.tag, "PRE ", 4);
+  
+  end = lseek(fd, 0, SEEK_END);  
+  sz = lseek(fd, -nr, SEEK_CUR);
+  if ((long)(end - sz) != (long)nr || sz == (off_t)-1) return false;
+
+  int num_written = write(fd, &info, sizeof(info));
+  if (num_written < 0 || sizeof(info) != num_written) return false;
+  return true;
+}
+
+// Note we are working with 32-bit numbers explicitly. This should
+// change at some point.
+bool set_relocation(int fd, int64_t offset, uint32_t value) {
+  if (lseek(fd, offset, SEEK_SET) != offset ||
+      write(fd, &value, 4) != 4) return false;
+  return true;
+}
+
+#define MAX_FULL_NAME 1024
+
+bool retouch_one_library(const char *lib_name,
+			 const char *lib_retouch_name,
+			 int32_t offset) {
+    FILE *file_retouch = NULL;
+    int fd_elf_rw = -1;
+    int32_t retouch_offset;
+    uint32_t retouch_original_value;
+    bool success = true;
+
+    // open the library
+    if ((fd_elf_rw = open(lib_name, O_RDWR, 0) < 0)) {
+        success = false;
+        goto out;
+    }
+    if (!check_prelinked(fd_elf_rw)) {
+        // nothing to do
+        goto out;
+    }
+
+    // open the retouch list (associated with this library)
+    if ((file_retouch = fopen(lib_retouch_name, "r")) == NULL) {
+        success = false;
+        goto out;
+    }
+
+    // loop over all retouch entries
+    while (!feof(file_retouch)) {
+        char one_line[MAX_FULL_NAME];
+      
+        // read one retouch entry
+        one_line[0]=0;
+        fgets(one_line, MAX_FULL_NAME, file_retouch);
+        if (sscanf(one_line,
+		   "%d %u",
+		   &retouch_offset,
+		   &retouch_original_value) != 2) {
+	  break;
+	}
+      
+	if (retouch_offset == -1) {
+  	    success = success && 
+  	        set_prelink_info(fd_elf_rw, 
+				 retouch_original_value + offset);
+	} else {
+	    success = success && 
+	        set_relocation(fd_elf_rw, 
+			       retouch_offset, 
+			       retouch_original_value + offset);
+	}
+    }
+
+  out:
+    // clean up
+    if (fd_elf_rw >= 0) { close(fd_elf_rw); fd_elf_rw = -1; }
+    if (file_retouch) { fclose(file_retouch); file_retouch = NULL; }
+
+    return success;
+}
+
+#undef MAX_FULL_NAME 
+
+// retouch_libraries(lib1, lib2, ...)
 char* RetouchLibrariesFn(const char* name, State* state,
 			 int argc, Expr* argv[]) {
+    UpdaterInfo* ui = (UpdaterInfo*)(state->cookie);
+    char **retouch_entries  = ReadVarArgs(state, argc, argv);
+    if (retouch_entries == NULL) {
+        return NULL;
+    }
+
+    int i = 0;
+    bool success = true;
+    while (i < (argc-1)) {
+        // fprintf(ui->cmd_pipe, "ui_print %s\n", retouch_entries[i]);
+
+        success = success && retouch_one_library(retouch_entries[i], 
+	  				         retouch_entries[i+1],
+					         0x2000);
+        free(retouch_entries[i]);
+        free(retouch_entries[i+1]);
+        i += 2;
+    }
+    if (i < argc) {
+        free(retouch_entries[i]);
+        success = false;
+    }
+    free(retouch_entries);
+
+    // fprintf(ui->cmd_pipe, "ui_print retouch %d %s\n", i, success?"T":"F");
+    return strdup(success ? "t" : "");
+}
+
+
+// undo_retouch_libraries(lib1, lib2, ...)
+char* UndoRetouchLibrariesFn(const char* name, State* state,
+			     int argc, Expr* argv[]) {
     char **retouch_entries  = ReadVarArgs(state, argc, argv);
     if (retouch_entries == NULL) {
       return NULL;
     }
 
     int i = 0;
-    bool success = 1;
+    bool success = true;
     while (i < (argc-1)) {
-      success = success || retouch_one_library(retouch_entries[i], 
-					       retouch_entries[i+1]);
+      success = success && retouch_one_library(retouch_entries[i], 
+					       retouch_entries[i+1],
+					       0 /* undo == no offset */);
       free(retouch_entries[i]);
       free(retouch_entries[i+1]);
       i += 2;
     }
     if (i < argc) {
       free(retouch_entries[i]);
-      success = 0;
+      success = false;
     }
     free(retouch_entries);
 
@@ -864,6 +1017,7 @@ void RegisterInstallFunctions() {
     RegisterFunction("package_extract_dir", PackageExtractDirFn);
     RegisterFunction("package_extract_file", PackageExtractFileFn);
     RegisterFunction("retouch_libraries", RetouchLibrariesFn);
+    RegisterFunction("undo_retouch_libraries", UndoRetouchLibrariesFn);
     RegisterFunction("symlink", SymlinkFn);
     RegisterFunction("set_perm", SetPermFn);
     RegisterFunction("set_perm_recursive", SetPermFn);
