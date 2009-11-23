@@ -26,6 +26,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "cutils/misc.h"
 #include "cutils/properties.h"
@@ -406,7 +407,78 @@ bool set_relocation(int fd, int64_t offset, uint32_t value) {
   return true;
 }
 
-#define MAX_FULL_NAME 1024
+#define false 0
+#define true 1
+
+int32_t offs_prev;
+uint32_t cont_prev;
+
+void init_compression_state(void) {
+  offs_prev = 0;
+  cont_prev = 0;
+}
+
+// For details on the encoding used for relocation lists, please
+// refer to build/tools/retouch/retouch-prepare.c. The intent is to
+// save space by removing most of the inherent redundancy.
+
+bool decode(FILE *f_in, int32_t *offset, uint32_t *contents) {
+  int one_char, input_size, charIx;
+  uint8_t input[8];
+
+  one_char = fgetc(f_in);
+  if (one_char == EOF) return false;
+  input[0] = (uint8_t)one_char;
+  if (input[0] & 0x80)
+    input_size = 2;
+  else if (input[0] & 0x40)
+    input_size = 3;
+  else
+    input_size = 8;
+
+  // we already read one byte..
+  charIx = 1;
+  while (charIx < input_size) {
+    one_char = fgetc(f_in);
+    if (one_char == EOF) return false;
+    input[charIx++] = (uint8_t)one_char;
+  }
+
+  if (input_size == 2) {
+    *offset = offs_prev + (((input[0]&0x60)>>5)+1)*4;
+
+    // if the original was negative, we need to 1-pad before applying delta
+    int32_t tmp = (((input[0] & 0x0000001f) << 8) | input[1]);
+    if (tmp & 0x1000) tmp = 0xffffe000 | tmp;
+    *contents = cont_prev + tmp;
+  } else if (input_size == 3) {
+    *offset = offs_prev + (((input[0]&0x30)>>4)+1)*4;
+
+    // if the original was negative, we need to 1-pad before applying delta
+    int32_t tmp = (((input[0] & 0x0000000f) << 16) | 
+		   (input[1] << 8) | 
+		   input[2]);
+    if (tmp & 0x80000) tmp = 0xfff00000 | tmp;
+    *contents = cont_prev + tmp;
+  } else {
+    *offset = 
+      (input[0]<<24) |
+      (input[1]<<16) |
+      (input[2]<<8) |
+      input[3];
+    if (*offset == 0x3fffffff) *offset = -1;
+    *contents =
+      (input[4]<<24) |
+      (input[5]<<16) |
+      (input[6]<<8) |
+      input[7];
+  }
+
+  offs_prev = *offset;
+  cont_prev = *contents;
+
+  return true;
+}
 
 bool retouch_one_library(const char *lib_name,
 			 const char *lib_retouch_name,
@@ -428,25 +500,20 @@ bool retouch_one_library(const char *lib_name,
     }
 
     // open the retouch list (associated with this library)
-    if ((file_retouch = fopen(lib_retouch_name, "r")) == NULL) {
+    if ((file_retouch = fopen(lib_retouch_name, "rb")) == NULL) {
         success = false;
         goto out;
     }
 
     // loop over all retouch entries
+    init_compression_state();
     while (!feof(file_retouch)) {
-        char one_line[MAX_FULL_NAME];
-      
         // read one retouch entry
-        one_line[0]=0;
-        fgets(one_line, MAX_FULL_NAME, file_retouch);
-        if (sscanf(one_line,
-		   "%d %u",
-		   &retouch_offset,
-		   &retouch_original_value) != 2) {
-	  break;
-	}
-      
+        if (!decode(file_retouch, &retouch_offset, &retouch_original_value)) {
+  	    if (!feof(file_retouch)) success = false;
+	    break;
+        }
+
 	if (retouch_offset == -1) {
   	    success = success && 
   	        set_prelink_info(fd_elf_rw, 
@@ -467,8 +534,6 @@ bool retouch_one_library(const char *lib_name,
     return success;
 }
 
-#undef MAX_FULL_NAME 
-
 // retouch_libraries(lib1, lib2, ...)
 char* RetouchLibrariesFn(const char* name, State* state,
 			 int argc, Expr* argv[]) {
@@ -477,6 +542,7 @@ char* RetouchLibrariesFn(const char* name, State* state,
     if (retouch_entries == NULL) {
         return NULL;
     }
+    int32_t random_base = 0x1000 * (time(NULL)%1024);
 
     int i = 0;
     bool success = true;
@@ -485,7 +551,7 @@ char* RetouchLibrariesFn(const char* name, State* state,
 
         success = success && retouch_one_library(retouch_entries[i], 
 	  				         retouch_entries[i+1],
-					         0x2000);
+					         random_base);
         free(retouch_entries[i]);
         free(retouch_entries[i+1]);
         i += 2;
