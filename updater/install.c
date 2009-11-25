@@ -542,7 +542,22 @@ char* RetouchLibrariesFn(const char* name, State* state,
     if (retouch_entries == NULL) {
         return NULL;
     }
-    int32_t random_base = 0x1000 * (time(NULL)%1024);
+    int32_t random_base = time(NULL) % 1024;
+    fprintf(ui->cmd_pipe, "ui_print time offset: 0x%x\n", random_base);
+    fprintf(ui->cmd_pipe, "ui_print\n");
+    {
+      FILE *f_random = fopen("/dev/random", "rb");
+      uint16_t random_bits = 0;
+      if (f_random != NULL) {
+	fread(&random_bits, 2, 1, f_random);
+	random_bits = random_bits % 1024;
+	fclose(f_random);
+      }
+      fprintf(ui->cmd_pipe, "ui_print random offset: 0x%x\n", random_bits);
+      fprintf(ui->cmd_pipe, "ui_print\n");
+      random_base = (random_base + random_bits) % 1024;
+    }
+    random_base *= -0x1000;
 
     int i = 0;
     bool success = true;
