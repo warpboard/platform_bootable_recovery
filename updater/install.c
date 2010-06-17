@@ -25,11 +25,14 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <time.h>
 
 #include "cutils/misc.h"
 #include "cutils/properties.h"
 #include "edify/expr.h"
 #include "minzip/DirUtil.h"
+#include "minelf/Retouch.h"
 #include "mtdutils/mounts.h"
 #include "mtdutils/mtdutils.h"
 #include "updater.h"
@@ -345,6 +348,82 @@ char* PackageExtractFileFn(const char* name, State* state,
   done:
     free(zip_path);
     free(dest_path);
+    return strdup(success ? "t" : "");
+}
+
+
+// retouch_libraries(lib1, lib2, ...)
+char* RetouchLibrariesFn(const char* name, State* state,
+                         int argc, Expr* argv[]) {
+    UpdaterInfo* ui = (UpdaterInfo*)(state->cookie);
+    char **retouch_entries  = ReadVarArgs(state, argc, argv);
+    if (retouch_entries == NULL) {
+        return NULL;
+    }
+
+    // some randomness from the clock
+    int32_t random_base = time(NULL) % 1024;
+    // some more randomness from /dev/random
+    FILE *f_random = fopen("/dev/random", "rb");
+    uint16_t random_bits = 0;
+    if (f_random != NULL) {
+        fread(&random_bits, 2, 1, f_random);
+        random_bits = random_bits % 1024;
+        fclose(f_random);
+    }
+    random_base = (random_base + random_bits) % 1024;
+    fprintf(ui->cmd_pipe, "ui_print Random offset: 0x%x\n", random_base);
+    fprintf(ui->cmd_pipe, "ui_print\n");
+
+    // make sure our randomization is page-aligned
+    random_base *= -0x1000;
+
+    int i = 0;
+    bool success = true;
+    while (i < (argc - 1)) {
+        success = success && retouch_one_library(retouch_entries[i],
+                                                 retouch_entries[i+1],
+                                                 random_base);
+        free(retouch_entries[i]);
+        free(retouch_entries[i+1]);
+        i += 2;
+    }
+    if (i < argc) {
+        free(retouch_entries[i]);
+        success = false;
+    }
+    free(retouch_entries);
+
+    return strdup(success ? "t" : "");
+}
+
+
+// undo_retouch_libraries(lib1, lib2, ...)
+char* UndoRetouchLibrariesFn(const char* name, State* state,
+                             int argc, Expr* argv[]) {
+    UpdaterInfo* ui = (UpdaterInfo*)(state->cookie);
+
+    char **retouch_entries  = ReadVarArgs(state, argc, argv);
+    if (retouch_entries == NULL) {
+        return NULL;
+    }
+
+    int i = 0;
+    bool success = true;
+    while (i < (argc-1)) {
+        success = success && retouch_one_library(retouch_entries[i],
+                                                 retouch_entries[i+1],
+                                                 0 /* undo => offset==0 */);
+        free(retouch_entries[i]);
+        free(retouch_entries[i+1]);
+        i += 2;
+    }
+    if (i < argc) {
+        free(retouch_entries[i]);
+        success = false;
+    }
+    free(retouch_entries);
+
     return strdup(success ? "t" : "");
 }
 
@@ -836,6 +915,8 @@ void RegisterInstallFunctions() {
     RegisterFunction("delete_recursive", DeleteFn);
     RegisterFunction("package_extract_dir", PackageExtractDirFn);
     RegisterFunction("package_extract_file", PackageExtractFileFn);
+    RegisterFunction("retouch_libraries", RetouchLibrariesFn);
+    RegisterFunction("undo_retouch_libraries", UndoRetouchLibrariesFn);
     RegisterFunction("symlink", SymlinkFn);
     RegisterFunction("set_perm", SetPermFn);
     RegisterFunction("set_perm_recursive", SetPermFn);
