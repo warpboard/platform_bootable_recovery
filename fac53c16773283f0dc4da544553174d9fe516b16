@@ -1,0 +1,8 @@
+Change-Id: Ifac53c16773283f0dc4da544553174d9fe516b16
+Code-Review+2: Jean-Baptiste Queru <jbq@google.com>
+Verified+1: Jean-Baptiste Queru <jbq@google.com>
+Submitted-by: Jean-Baptiste Queru <jbq@google.com>
+Submitted-at: Mon, 02 Mar 2009 15:49:06 -0700
+Reviewed-on: https://review.source.android.com/9046
+Project: platform/bootable/recovery
+Branch: refs/heads/master
