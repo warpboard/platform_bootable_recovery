@@ -23,7 +23,7 @@ LOCAL_STATIC_LIBRARIES :=
 ifeq ($(TARGET_USERIMAGES_USE_EXT4), true)
 LOCAL_CFLAGS += -DUSE_EXT4
 LOCAL_C_INCLUDES += system/extras/ext4_utils
-LOCAL_STATIC_LIBRARIES += libext4_utils libz
+LOCAL_STATIC_LIBRARIES += libext4_utils libz libselinux
 endif
 
 # This binary is in the recovery ramdisk, which is otherwise a copy of root.
@@ -38,7 +38,7 @@ ifeq ($(TARGET_RECOVERY_UI_LIB),)
 else
   LOCAL_STATIC_LIBRARIES += $(TARGET_RECOVERY_UI_LIB)
 endif
-LOCAL_STATIC_LIBRARIES += libext4_utils libz
+LOCAL_STATIC_LIBRARIES += libext4_utils libz libselinux
 LOCAL_STATIC_LIBRARIES += libminzip libunz libmtdutils libmincrypt
 LOCAL_STATIC_LIBRARIES += libminui libpixelflinger_static libpng libcutils
 LOCAL_STATIC_LIBRARIES += libstdc++ libc
