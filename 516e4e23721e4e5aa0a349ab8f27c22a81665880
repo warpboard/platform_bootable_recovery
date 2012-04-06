@@ -1,0 +1,8 @@
+Code-Review+2: Doug Zongker <dougz@android.com>
+Verified+1: Kenny Root <kroot@android.com>
+Code-Review+1: T.O. Radzy Radzykewycz <tim.radzykewycz@windriver.com>
+Submitted-by: Kenny Root <kroot@android.com>
+Submitted-at: Fri, 06 Apr 2012 14:42:26 -0700
+Reviewed-on: https://android-review.googlesource.com/34880
+Project: platform/bootable/recovery
+Branch: refs/heads/master
