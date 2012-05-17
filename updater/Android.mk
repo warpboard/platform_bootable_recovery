@@ -50,15 +50,17 @@ LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
 
 inc := $(call intermediates-dir-for,PACKAGING,updater_extensions)/register.inc
 
-# During the first pass of reading the makefiles, we dump the list of
+# We always try to rebuild the ".list" file. For doing so  we dump the list of
 # extension libs to a temp file, then copy that to the ".list" file if
 # it is different than the existing .list (if any).  The register.inc
 # file then uses the .list as a prerequisite, so it is only rebuilt
 # (and updater.o recompiled) when the list of extension libs changes.
 
-junk := $(shell mkdir -p $(dir $(inc));\
-	        echo $(TARGET_RECOVERY_UPDATER_LIBS) > $(inc).temp;\
-	        diff -q $(inc).temp $(inc).list 2>/dev/null || cp -f $(inc).temp $(inc).list)
+.FORCE:
+$(inc).list : .FORCE
+	$(hide) mkdir -p $(dir $(inc));\
+	echo $(TARGET_RECOVERY_UPDATER_LIBS) > $(inc).temp;\
+	diff -q $(inc).temp $(inc).list 2>/dev/null || cp -f $(inc).temp $(inc).list
 
 $(inc) : libs := $(TARGET_RECOVERY_UPDATER_LIBS)
 $(inc) : $(inc).list
