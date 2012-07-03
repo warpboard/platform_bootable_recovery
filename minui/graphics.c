@@ -171,7 +171,6 @@ static void get_memory_surface(GGLSurface* ms) {
 static void set_active_framebuffer(unsigned n)
 {
     if (n > 1 || !double_buffering) return;
-    vi.yres_virtual = vi.yres * NUM_BUFFERS;
     vi.yoffset = n * vi.yres;
     vi.bits_per_pixel = PIXEL_SIZE * 8;
     if (ioctl(gr_fb_fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
