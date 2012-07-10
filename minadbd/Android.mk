@@ -15,6 +15,7 @@ LOCAL_SRC_FILES := \
 	fdevent.c \
 	transport.c \
 	transport_usb.c \
+	transport_local.c \
 	sockets.c \
 	services.c \
 	usb_linux_client.c \

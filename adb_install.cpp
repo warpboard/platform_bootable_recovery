@@ -40,7 +40,7 @@ static void
 set_usb_driver(bool enabled) {
     int fd = open("/sys/class/android_usb/android0/enable", O_WRONLY);
     if (fd < 0) {
-        ui->Print("failed to open driver control: %s\n", strerror(errno));
+        printf("failed to open driver control: %s\n", strerror(errno));
         return;
     }
     if (write(fd, enabled ? "1" : "0", 1) < 0) {
