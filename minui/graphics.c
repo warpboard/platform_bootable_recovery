@@ -365,8 +365,10 @@ int gr_init(void)
     gl->enable(gl, GGL_BLEND);
     gl->blendFunc(gl, GGL_SRC_ALPHA, GGL_ONE_MINUS_SRC_ALPHA);
 
+#ifndef MINUI_DISABLE_INIT_BLANK
     gr_fb_blank(true);
     gr_fb_blank(false);
+#endif
 
     return 0;
 }

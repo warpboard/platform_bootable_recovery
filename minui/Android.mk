@@ -9,6 +9,10 @@ LOCAL_C_INCLUDES +=\
 
 LOCAL_MODULE := libminui
 
+ifeq ($(strip $(BOARD_MINUI_DISABLE_INIT_BLANK)),true)
+LOCAL_CFLAGS += -DMINUI_DISABLE_INIT_BLANK
+endif
+
 # This used to compare against values in double-quotes (which are just
 # ordinary characters in this context).  Strip double-quotes from the
 # value so that either will work.
