@@ -960,8 +960,8 @@ main(int argc, char **argv) {
             // turn the text display on if the script fails so the error
             // message is visible.
             char buffer[PROPERTY_VALUE_MAX+1];
-            property_get("ro.build.fingerprint", buffer, "");
-            if (strstr(buffer, ":userdebug/") || strstr(buffer, ":eng/")) {
+            property_get("ro.build.type", buffer, "");
+            if (!strcmp(buffer, "userdebug") || !strcmp(buffer, "eng")) {
                 ui->ShowText(true);
             }
         }
