@@ -24,6 +24,7 @@ LOCAL_SRC_FILES := \
     roots.cpp \
     ui.cpp \
     screen_ui.cpp \
+    asn1_decoder.cpp \
     verifier.cpp \
     adb_install.cpp
 
@@ -84,6 +85,7 @@ LOCAL_FORCE_STATIC_EXECUTABLE := true
 LOCAL_MODULE_TAGS := tests
 LOCAL_SRC_FILES := \
     verifier_test.cpp \
+    asn1_decoder.cpp \
     verifier.cpp \
     ui.cpp
 LOCAL_STATIC_LIBRARIES := \

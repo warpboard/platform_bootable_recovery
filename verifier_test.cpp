@@ -144,7 +144,8 @@ int main(int argc, char **argv) {
 
     Certificate default_cert;
     Certificate* cert = &default_cert;
-    cert->public_key = &test_key;
+    cert->key_type = Certificate::RSA;
+    cert->public_key.rsa = &test_key;
     cert->hash_len = SHA_DIGEST_SIZE;
     int num_keys = 1;
     ++argv;
@@ -154,7 +155,8 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[0], "-f4") == 0) {
         ++argv;
-        cert->public_key = &test_f4_key;
+        cert->key_type = Certificate::RSA;
+        cert->public_key.rsa = &test_f4_key;
     } else if (strcmp(argv[0], "-file") == 0) {
         ++argv;
         cert = load_keys(argv[0], &num_keys);
