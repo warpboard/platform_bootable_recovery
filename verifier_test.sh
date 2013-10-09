@@ -85,16 +85,19 @@ expect_succeed otasigned.zip
 expect_succeed otasigned_f4.zip -f4
 expect_succeed otasigned_sha256.zip -sha256
 expect_succeed otasigned_f4_sha256.zip -sha256 -f4
+expect_succeed otasigned_ecdsa_sha256.zip -sha256 -ec
 
 # verified against different key
 expect_fail otasigned.zip -f4
 expect_fail otasigned_f4.zip
+expect_fail otasigned_ecdsa_sha256.zip
 
 # verified against right key but wrong hash algorithm
 expect_fail otasigned.zip -sha256
 expect_fail otasigned_f4.zip -sha256 -f4
 expect_fail otasigned_sha256.zip
 expect_fail otasigned_f4_sha256.zip -f4
+expect_fail otasigned_ecdsa_sha256.zip
 
 # various other cases
 expect_fail random.zip
