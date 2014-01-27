@@ -1,0 +1,7 @@
+Code-Review+2: Doug Zongker <dougz@android.com>
+Verified+1: Colin Cross <ccross@android.com>
+Submitted-by: Colin Cross <ccross@android.com>
+Submitted-at: Mon, 27 Jan 2014 20:35:19 +0000
+Reviewed-on: https://android-review.googlesource.com/79881
+Project: platform/bootable/recovery
+Branch: refs/heads/master
