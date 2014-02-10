@@ -260,10 +260,13 @@ int gr_init(void)
         return -1;
     }
 
-    backend = fbdev_init(gr_framebuffer);
+    backend = adf_init(gr_framebuffer);
     if (!backend) {
-        gr_exit();
-        return -1;
+        backend = fbdev_init(gr_framebuffer);
+        if (!backend) {
+            gr_exit();
+            return -1;
+        }
     }
 
     get_memory_surface(&gr_mem_surface);

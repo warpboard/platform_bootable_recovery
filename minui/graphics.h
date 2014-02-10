@@ -40,6 +40,7 @@ struct minui_backend {
 
 #define NUM_BUFFERS 2
 
+struct minui_backend *adf_init(GGLSurface fb[NUM_BUFFERS]);
 struct minui_backend *fbdev_init(GGLSurface fb[NUM_BUFFERS]);
 
 #endif /* _GRAPHICS_H_ */
