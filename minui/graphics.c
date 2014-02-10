@@ -25,26 +25,13 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
-#include <linux/fb.h>
 #include <linux/kd.h>
 
 #include <pixelflinger/pixelflinger.h>
 
+#include "graphics.h"
 #include "font_10x18.h"
 #include "minui.h"
-
-#if defined(RECOVERY_BGRA)
-#define PIXEL_FORMAT GGL_PIXEL_FORMAT_BGRA_8888
-#define PIXEL_SIZE   4
-#elif defined(RECOVERY_RGBX)
-#define PIXEL_FORMAT GGL_PIXEL_FORMAT_RGBX_8888
-#define PIXEL_SIZE   4
-#else
-#define PIXEL_FORMAT GGL_PIXEL_FORMAT_RGB_565
-#define PIXEL_SIZE   2
-#endif
-
-#define NUM_BUFFERS 2
 
 typedef struct {
     GGLSurface* texture;
@@ -58,130 +45,26 @@ static GGLSurface gr_font_texture;
 static GGLSurface gr_framebuffer[NUM_BUFFERS];
 static GGLSurface gr_mem_surface;
 static unsigned gr_active_fb = 0;
-static unsigned double_buffering = 0;
 static int overscan_percent = OVERSCAN_PERCENT;
 static int overscan_offset_x = 0;
 static int overscan_offset_y = 0;
 
-static int gr_fb_fd = -1;
+struct minui_backend *backend = NULL;
 static int gr_vt_fd = -1;
-
-static struct fb_var_screeninfo vi;
-static struct fb_fix_screeninfo fi;
-
-static int get_framebuffer(GGLSurface *fb)
-{
-    int fd;
-    void *bits;
-
-    fd = open("/dev/graphics/fb0", O_RDWR);
-    if (fd < 0) {
-        perror("cannot open fb0");
-        return -1;
-    }
-
-    if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) < 0) {
-        perror("failed to get fb0 info");
-        close(fd);
-        return -1;
-    }
-
-    vi.bits_per_pixel = PIXEL_SIZE * 8;
-    if (PIXEL_FORMAT == GGL_PIXEL_FORMAT_BGRA_8888) {
-      vi.red.offset     = 8;
-      vi.red.length     = 8;
-      vi.green.offset   = 16;
-      vi.green.length   = 8;
-      vi.blue.offset    = 24;
-      vi.blue.length    = 8;
-      vi.transp.offset  = 0;
-      vi.transp.length  = 8;
-    } else if (PIXEL_FORMAT == GGL_PIXEL_FORMAT_RGBX_8888) {
-      vi.red.offset     = 24;
-      vi.red.length     = 8;
-      vi.green.offset   = 16;
-      vi.green.length   = 8;
-      vi.blue.offset    = 8;
-      vi.blue.length    = 8;
-      vi.transp.offset  = 0;
-      vi.transp.length  = 8;
-    } else { /* RGB565*/
-      vi.red.offset     = 11;
-      vi.red.length     = 5;
-      vi.green.offset   = 5;
-      vi.green.length   = 6;
-      vi.blue.offset    = 0;
-      vi.blue.length    = 5;
-      vi.transp.offset  = 0;
-      vi.transp.length  = 0;
-    }
-    if (ioctl(fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
-        perror("failed to put fb0 info");
-        close(fd);
-        return -1;
-    }
-
-    if (ioctl(fd, FBIOGET_FSCREENINFO, &fi) < 0) {
-        perror("failed to get fb0 info");
-        close(fd);
-        return -1;
-    }
-
-    bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (bits == MAP_FAILED) {
-        perror("failed to mmap framebuffer");
-        close(fd);
-        return -1;
-    }
-
-    overscan_offset_x = vi.xres * overscan_percent / 100;
-    overscan_offset_y = vi.yres * overscan_percent / 100;
-
-    fb->version = sizeof(*fb);
-    fb->width = vi.xres;
-    fb->height = vi.yres;
-    fb->stride = fi.line_length/PIXEL_SIZE;
-    fb->data = bits;
-    fb->format = PIXEL_FORMAT;
-    memset(fb->data, 0, vi.yres * fi.line_length);
-
-    fb++;
-
-    /* check if we can use double buffering */
-    if (vi.yres * fi.line_length * 2 > fi.smem_len)
-        return fd;
-
-    double_buffering = 1;
-
-    fb->version = sizeof(*fb);
-    fb->width = vi.xres;
-    fb->height = vi.yres;
-    fb->stride = fi.line_length/PIXEL_SIZE;
-    fb->data = (void*) (((char*) bits) + vi.yres * fi.line_length);
-    fb->format = PIXEL_FORMAT;
-    memset(fb->data, 0, vi.yres * fi.line_length);
-
-    return fd;
-}
 
 static void get_memory_surface(GGLSurface* ms) {
   ms->version = sizeof(*ms);
-  ms->width = vi.xres;
-  ms->height = vi.yres;
-  ms->stride = fi.line_length/PIXEL_SIZE;
-  ms->data = malloc(fi.line_length * vi.yres);
+  ms->width = gr_framebuffer[0].width;
+  ms->height = gr_framebuffer[0].height;
+  ms->stride = gr_framebuffer[0].stride;
+  ms->data = malloc(ms->stride * PIXEL_SIZE * ms->height);
   ms->format = PIXEL_FORMAT;
 }
 
 static void set_active_framebuffer(unsigned n)
 {
-    if (n > 1 || !double_buffering) return;
-    vi.yres_virtual = vi.yres * NUM_BUFFERS;
-    vi.yoffset = n * vi.yres;
-    vi.bits_per_pixel = PIXEL_SIZE * 8;
-    if (ioctl(gr_fb_fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
-        perror("active fb swap failed");
-    }
+    if (n > 1 || !backend->double_buffering) return;
+    backend->set_active_framebuffer(backend, n);
 }
 
 void gr_flip(void)
@@ -189,13 +72,13 @@ void gr_flip(void)
     GGLContext *gl = gr_context;
 
     /* swap front and back buffers */
-    if (double_buffering)
+    if (backend->double_buffering)
         gr_active_fb = (gr_active_fb + 1) & 1;
 
     /* copy data from the in-memory surface to the buffer we're about
      * to make active. */
     memcpy(gr_framebuffer[gr_active_fb].data, gr_mem_surface.data,
-           fi.line_length * vi.yres);
+           gr_mem_surface.stride * PIXEL_SIZE * gr_mem_surface.height);
 
     /* inform the display driver */
     set_active_framebuffer(gr_active_fb);
@@ -377,16 +260,19 @@ int gr_init(void)
         return -1;
     }
 
-    gr_fb_fd = get_framebuffer(gr_framebuffer);
-    if (gr_fb_fd < 0) {
+    backend = fbdev_init(gr_framebuffer);
+    if (!backend) {
         gr_exit();
         return -1;
     }
 
     get_memory_surface(&gr_mem_surface);
 
-    printf("framebuffer: fd %d (%d x %d)\n",
-           gr_fb_fd, gr_framebuffer[0].width, gr_framebuffer[0].height);
+    printf("framebuffer: %d x %d\n",
+            gr_framebuffer[0].width, gr_framebuffer[0].height);
+
+    overscan_offset_x = gr_framebuffer[0].width * overscan_percent / 100;
+    overscan_offset_y = gr_framebuffer[0].height * overscan_percent / 100;
 
         /* start with 0 as front (displayed) and 1 as back (drawing) */
     gr_active_fb = 0;
@@ -405,8 +291,8 @@ int gr_init(void)
 
 void gr_exit(void)
 {
-    close(gr_fb_fd);
-    gr_fb_fd = -1;
+    if (backend)
+        backend->exit(backend);
 
     free(gr_mem_surface.data);
 
@@ -432,9 +318,5 @@ gr_pixel *gr_fb_data(void)
 
 void gr_fb_blank(bool blank)
 {
-    int ret;
-
-    ret = ioctl(gr_fb_fd, FBIOBLANK, blank ? FB_BLANK_POWERDOWN : FB_BLANK_UNBLANK);
-    if (ret < 0)
-        perror("ioctl(): blank");
+    backend->blank(backend, blank);
 }
