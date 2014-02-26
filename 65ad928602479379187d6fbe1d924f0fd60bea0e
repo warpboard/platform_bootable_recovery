@@ -1,0 +1,8 @@
+Code-Review+2: Benoit Goby <benoitgoby@google.com>
+Code-Review+1: Dan Willemsen <nvdwillemsen@gmail.com>
+Verified+1: Doug Zongker <dougz@android.com>
+Submitted-by: Doug Zongker <dougz@android.com>
+Submitted-at: Wed, 26 Feb 2014 22:17:57 +0000
+Reviewed-on: https://android-review.googlesource.com/79391
+Project: platform/bootable/recovery
+Branch: refs/heads/master
